@@ -66,7 +66,7 @@ def flask_delete():
 
 # retrieve course by courseNo
 @app.route('/course', methods=['GET'])
-def get_course_by_no():
+def get_course():
     try:
         course_no = int(request.args.get("courseNo"))
 
@@ -90,10 +90,49 @@ def get_courses():
     return jsonify(courses)
 
 
-# retrive course by cmuAccount
+# retrive course by cmuAccount and courseNo
 # sorted
 @app.route("/api/user_course", methods=["GET"])
 def user_course():
+    try:
+        semester_order = {
+            "1": 1,
+            "2": 2,
+            "summer": 3,  # "1" over "2" and "2" over "summer"
+        }
+        cmu_account = str(request.args.get("cmuAccount", ""))
+        course_no_str = request.args.get("courseNo", "")
+
+        if not cmu_account or not course_no_str.isdigit() or int(course_no_str) == 0:
+            return jsonify({"success": False, "message": "cmuAccount and courseNo are required"}), 400
+
+        course_no = int(course_no_str)
+
+        # fields_to_include = {"cmuAccount": 1, "courseName": 1,
+        #                      "courseNo": 1, "academicYear": 1, "semester": 1, "_id": 0}
+
+        # courses = list(collection.find(
+        #     {"cmuAccount": cmu_account, "courseNo": course_no}, fields_to_include))
+
+        courses = list(collection.find(
+            {"cmuAccount": cmu_account, "courseNo": course_no}, {"_id": 0}))
+
+        # Sort courses by academicYear and semester with updated priority
+        courses_sorted = sorted(courses, key=lambda x: (
+            x['academicYear'], semester_order.get(x['semester'], 0)))
+
+        return jsonify(courses_sorted)
+
+    except Exception as e:
+
+        return jsonify({"success": False, "Server error": str(e)}), 500
+
+
+# retrive course by cmuAccount and courseNo
+# sorted
+# just header for testing
+@app.route("/api/user_course/header", methods=["GET"])
+def user_course_header():
     try:
         semester_order = {
             "1": 1,
@@ -126,23 +165,30 @@ def user_course():
 
 
 # retrieve courses by cmuAccount
+# not sort yet
 # (got array of course object)
 @app.route("/api/user_courses", methods=["GET"])
 def user_courses():
     try:
 
         cmu_account = str(request.args.get("cmuAccount"))
-        print("cmu account:", cmu_account)
 
         # Specify the fields to include in the results
-        fields_to_include = {"cmuAccount": 1, "courseName": 1,
-                             "courseNo": 1, "academicYear": 1, "semester": 1, "_id": 0}
+        # fields_to_include = {"cmuAccount": 1, "courseName": 1,
+        #                      "courseNo": 1, "academicYear": 1, "semester": 1, "_id": 0}
+
+        # Make sure to define semester_order if it's being used for sorting
+        semester_order = {'summer': 3, '2': 2, '1': 1}
 
         courses = list(collection.find(
-            {"cmuAccount": cmu_account}, fields_to_include))
+            {"cmuAccount": cmu_account}, {"_id": 0}))
+
+        # Sort courses by academicYear and semester with updated priority
+        courses_sorted = sorted(courses, key=lambda x: (
+            x['academicYear'], semester_order.get(x['semester'], 0)))
 
         # Since the _id field is not included in the projection, no need to convert it to a string
-        return jsonify(courses)
+        return jsonify(courses_sorted)
     except Exception as e:
 
         return jsonify({"success": False, "Error retrieve user courses": str(e)}), 500
@@ -245,6 +291,7 @@ def user_upload_logic():
 
 # post course by cmuAccount
 # data pass to ML
+# not support .csv yet
 # for some reason this route work on second attemp
 @app.route("/api/user_upload", methods=["POST"])
 def user_upload_course():
@@ -256,9 +303,9 @@ def user_upload_course():
 
 
 # delete course by cmuAccount
-@app.route("/api/user_upload", methods=["DELETE"])
+@app.route("/api/user_course_course_feedback_delete", methods=["DELETE"])
 def user_delete_course():
-    return "delete course route"
+    pass
 
 
 # server configuration
