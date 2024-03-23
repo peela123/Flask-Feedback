@@ -15,6 +15,7 @@ import requests
 import jwt
 import os
 import asyncio
+
 # from flask_jwt import JWT, jwt_required, current_identity
 
 # from openpyxl import load_workbook
@@ -29,8 +30,8 @@ CORS(app)  # Allow CORS for all domains on all routes
 # MongoDB connection configuration
 MONGO_URI = "mongodb+srv://peelaxv:peelaxv123@cluster0.djocv6a.mongodb.net/Feedback?retryWrites=true&w=majority"
 client = MongoClient(MONGO_URI)  # mongoDB URI
-db = client['Feedback']  # database name
-collection = db['student_feedbacks']  # collection name
+db = client["Feedback"]  # database name
+collection = db["student_feedbacks"]  # collection name
 
 load_dotenv()  # This loads the variables from .env into the environment
 
@@ -58,14 +59,19 @@ def flask_seed():
 def flask_delete():
     try:
         result = collection.delete_many({})
-        return jsonify({"success": True, "message": f"Deleted {result.deleted_count} documents from the collection."})
+        return jsonify(
+            {
+                "success": True,
+                "message": f"Deleted {result.deleted_count} documents from the collection.",
+            }
+        )
     except Exception as e:
         # Internal Server Error
         return jsonify({"success": False, "error": str(e)}), 500
 
 
 # retrieve course by courseNo
-@app.route('/course', methods=['GET'])
+@app.route("/course", methods=["GET"])
 def get_course():
     try:
         course_no = int(request.args.get("courseNo"))
@@ -77,11 +83,19 @@ def get_course():
         else:
             return jsonify({"message": "Course not found"}), 404
     except Exception as e:
-        return jsonify({"error": "An error occurred can not retrive specific course", "details": str(e)}), 500
+        return (
+            jsonify(
+                {
+                    "error": "An error occurred can not retrive specific course",
+                    "details": str(e),
+                }
+            ),
+            500,
+        )
 
 
 # retrieve courses (got array of course object)
-@app.route('/courses', methods=['GET'])
+@app.route("/courses", methods=["GET"])
 def get_courses():
 
     # Retrieve all courses from MongoDB
@@ -90,77 +104,102 @@ def get_courses():
     return jsonify(courses)
 
 
+def fetch_user_course_header_sorted(cmu_account, course_no):
+    semester_order = {"1": 1, "2": 2, "summer": 3}  # "1" over "2" and "2" over "summer"
+
+    fields_to_include = {
+        "cmuAccount": 1,
+        "courseNo": 1,
+        "courseName": 1,
+        "academicYear": 1,
+        "semester": 1,
+        "_id": 0,
+    }
+
+    course = list(
+        collection.find(
+            {"cmuAccount": cmu_account, "courseNo": course_no}, fields_to_include
+        )
+    )
+    course_header_sorted = sorted(
+        course, key=lambda x: (x["academicYear"], semester_order.get(x["semester"], 0))
+    )
+
+    return course_header_sorted
+
+
+def fetch_user_course_sorted(cmu_account, course_no):
+
+    semester_order = {"1": 1, "2": 2, "summer": 3}  # "1" over "2" and "2" over "summer"
+
+    course = list(
+        collection.find({"cmuAccount": cmu_account, "courseNo": course_no}, {"_id": 0})
+    )
+    course_sorted = sorted(
+        course, key=lambda x: (x["academicYear"], semester_order.get(x["semester"], 0))
+    )
+
+    return course_sorted
+
+
 # retrive course by cmuAccount and courseNo
 # sorted
 @app.route("/api/user_course", methods=["GET"])
 def user_course():
     try:
-        semester_order = {
-            "1": 1,
-            "2": 2,
-            "summer": 3,  # "1" over "2" and "2" over "summer"
-        }
         cmu_account = str(request.args.get("cmuAccount", ""))
         course_no_str = request.args.get("courseNo", "")
 
         if not cmu_account or not course_no_str.isdigit() or int(course_no_str) == 0:
-            return jsonify({"success": False, "message": "cmuAccount and courseNo are required"}), 400
+            return (
+                jsonify(
+                    {
+                        "success": False,
+                        "message": "cmuAccount and courseNo are required",
+                    }
+                ),
+                400,
+            )
 
         course_no = int(course_no_str)
 
-        # fields_to_include = {"cmuAccount": 1, "courseName": 1,
-        #                      "courseNo": 1, "academicYear": 1, "semester": 1, "_id": 0}
+        course_sorted = fetch_user_course_sorted(cmu_account, course_no)
 
-        # courses = list(collection.find(
-        #     {"cmuAccount": cmu_account, "courseNo": course_no}, fields_to_include))
-
-        courses = list(collection.find(
-            {"cmuAccount": cmu_account, "courseNo": course_no}, {"_id": 0}))
-
-        # Sort courses by academicYear and semester with updated priority
-        courses_sorted = sorted(courses, key=lambda x: (
-            x['academicYear'], semester_order.get(x['semester'], 0)))
-
-        return jsonify(courses_sorted)
+        return jsonify(course_sorted)
 
     except Exception as e:
 
         return jsonify({"success": False, "Server error": str(e)}), 500
 
 
-# retrive course by cmuAccount and courseNo
+# retrive course header by cmuAccount and courseNo
 # sorted
-# just header for testing
+# just header for testingn
 @app.route("/api/user_course/header", methods=["GET"])
 def user_course_header():
     try:
-        semester_order = {
-            "1": 1,
-            "2": 2,
-            "summer": 3,  # "1" over "2" and "2" over "summer"
-        }
+
         cmu_account = str(request.args.get("cmuAccount", ""))
         course_no_str = request.args.get("courseNo", "")
 
         if not cmu_account or not course_no_str.isdigit() or int(course_no_str) == 0:
-            return jsonify({"success": False, "message": "cmuAccount and courseNo are required"}), 400
+            return (
+                jsonify(
+                    {
+                        "success": False,
+                        "message": "cmuAccount and courseNo are required",
+                    }
+                ),
+                400,
+            )
 
         course_no = int(course_no_str)
 
-        fields_to_include = {"cmuAccount": 1, "courseName": 1,
-                             "courseNo": 1, "academicYear": 1, "semester": 1, "_id": 0}
+        course_header_sorted = fetch_user_course_header_sorted(cmu_account, course_no)
 
-        courses = list(collection.find(
-            {"cmuAccount": cmu_account, "courseNo": course_no}, fields_to_include))
-
-        # Sort courses by academicYear and semester with updated priority
-        courses_sorted = sorted(courses, key=lambda x: (
-            x['academicYear'], semester_order.get(x['semester'], 0)))
-
-        return jsonify(courses_sorted)
+        return jsonify(course_header_sorted)
 
     except Exception as e:
-
         return jsonify({"success": False, "Server error": str(e)}), 500
 
 
@@ -173,21 +212,19 @@ def user_courses():
 
         cmu_account = str(request.args.get("cmuAccount"))
 
-        # Specify the fields to include in the results
-        # fields_to_include = {"cmuAccount": 1, "courseName": 1,
-        #                      "courseNo": 1, "academicYear": 1, "semester": 1, "_id": 0}
-
         # Make sure to define semester_order if it's being used for sorting
-        semester_order = {'summer': 3, '2': 2, '1': 1}
+        semester_order = {"summer": 3, "2": 2, "1": 1}
 
-        courses = list(collection.find(
-            {"cmuAccount": cmu_account}, {"_id": 0}))
+        courses = list(collection.find({"cmuAccount": cmu_account}, {"_id": 0}))
 
         # Sort courses by academicYear and semester with updated priority
-        courses_sorted = sorted(courses, key=lambda x: (
-            x['academicYear'], semester_order.get(x['semester'], 0)))
+        courses_sorted = sorted(
+            courses,
+            key=lambda x: (x["academicYear"], semester_order.get(x["semester"], 0)),
+        )
 
         # Since the _id field is not included in the projection, no need to convert it to a string
+
         return jsonify(courses_sorted)
     except Exception as e:
 
@@ -223,11 +260,14 @@ def user_upload_logic():
 
         # Convert to array data structure
         comments_array = request_body.get("comments", [])
+        response_count = request_body.get("responseCount",int)
         cmu_account = request_body.get("cmuAccount")
 
         batch_size = 10
-        batches = [comments_array[i:i + batch_size]
-                   for i in range(0, len(comments_array), batch_size)]
+        batches = [
+            comments_array[i : i + batch_size]
+            for i in range(0, len(comments_array), batch_size)
+        ]
 
         all_predicted_labels = []
         all_predicted_sentiments = []
@@ -242,10 +282,12 @@ def user_upload_logic():
                 print("Skipping batch due to API error.")
                 continue
 
-            predicted_labels_batch = [result[0]["label"]
-                                      for result in label_predictions]
-            predicted_sentiments_batch = [result[0]["label"]
-                                          for result in sentiment_predictions]
+            predicted_labels_batch = [
+                result[0]["label"] for result in label_predictions
+            ]
+            predicted_sentiments_batch = [
+                result[0]["label"] for result in sentiment_predictions
+            ]
 
             all_predicted_labels.extend(predicted_labels_batch)
             all_predicted_sentiments.extend(predicted_sentiments_batch)
@@ -253,8 +295,11 @@ def user_upload_logic():
         teaching_method_comments, assessment_comments, content_comments = [], [], []
 
         for i, comment_text in enumerate(comments_array):
-            comment = {"text": comment_text,
-                       "sentiment": all_predicted_sentiments[i], "label": all_predicted_labels[i]}
+            comment = {
+                "text": comment_text,
+                "sentiment": all_predicted_sentiments[i],
+                "label": all_predicted_labels[i],
+            }
             if comment["label"].lower() == "teaching_method":
                 teaching_method_comments.append(comment)
             elif comment["label"].lower() == "exam":
@@ -262,16 +307,23 @@ def user_upload_logic():
             elif comment["label"].lower() == "content":
                 content_comments.append(comment)
 
-        existing_course = collection.find_one({
-            "cmuAccount": cmu_account,
-            "courseName": course_name,
-            "courseNo": course_no,
-            "academicYear": academic_year,
-            "semester": semester,
-        })
+        existing_course = collection.find_one(
+            {
+                "cmuAccount": cmu_account,
+                "courseName": course_name,
+                "courseNo": course_no,
+                "academicYear": academic_year,
+                "semester": semester,
+            }
+        )
 
         if existing_course:
-            return jsonify({"success": True, "message": "Already have exact cmuAccount, courseName, courseNo, semester, academicYear document"})
+            return jsonify(
+                {
+                    "success": True,
+                    "message": "Already have exact cmuAccount, courseName, courseNo, semester, academicYear document",
+                }
+            )
         else:
             new_course = {
                 "cmuAccount": cmu_account,
@@ -281,12 +333,22 @@ def user_upload_logic():
                 "semester": semester,
                 "teachingMethodComments": teaching_method_comments,
                 "assessmentComments": assessment_comments,
-                "contentComments": content_comments
+                "contentComments": content_comments,
+                "responseCount":response_count,
             }
             collection.insert_one(new_course)
             return jsonify({"success": True, "message": "Insert as new course success"})
     except Exception as e:
-        return jsonify({"success": False, "message": "Fail to add course due to some error", "error": str(e)}), 500
+        return (
+            jsonify(
+                {
+                    "success": False,
+                    "message": "Fail to add course due to some error",
+                    "error": str(e),
+                }
+            ),
+            500,
+        )
 
 
 # post course by cmuAccount
@@ -302,12 +364,79 @@ def user_upload_course():
     return response
 
 
-# delete course by cmuAccount
-@app.route("/api/user_course_course_feedback_delete", methods=["DELETE"])
-def user_delete_course():
-    pass
+@app.route("/api/user_bar_chart", methods=["GET"])
+def user_bar_chart_handler():
+    try:
+        course_no = request.args.get("courseNo", default=None, type=int)
+        cmu_account = request.args.get("cmuAccount", default=None, type=str)
+
+        if not course_no or not cmu_account:
+            return jsonify({"error": "Course number and CMU account are required"}), 400
+
+        courses_sorted = fetch_user_course(cmu_account, course_no)
+
+        # Initialize results with empty lists for each sentiment and comment type
+
+        results = [
+            {
+                "data": [],
+                "stack": "A",
+            },
+            {
+                "data": [],
+                "stack": "A",
+            },
+            {
+                "data": [],
+                "stack": "A",
+            },
+            {
+                "data": [],
+                "stack": "B",
+            },
+            {
+                "data": [],
+                "stack": "B",
+            },
+            {
+                "data": [],
+                "stack": "B",
+            },
+            {
+                "data": [],
+                "stack": "C",
+            },
+            {
+                "data": [],
+                "stack": "C",
+            },
+            {
+                "data": [],
+                "stack": "C",
+            },
+        ]
+
+        for course in courses_sorted:
+            # Append the counts to the respective 'data' list for each sentiment and comment type
+            results[0]["data"].append(teaching_method_sentiments["Positive"])
+            results[1]["data"].append(teaching_method_sentiments["Negative"])
+            results[2]["data"].append(teaching_method_sentiments["Neutral"])
+            results[3]["data"].append(assessment_sentiments["Positive"])
+            results[4]["data"].append(assessment_sentiments["Negative"])
+            results[5]["data"].append(assessment_sentiments["Neutral"])
+            results[6]["data"].append(content_sentiments["Positive"])
+            results[7]["data"].append(content_sentiments["Negative"])
+            results[8]["data"].append(content_sentiments["Neutral"])
+
+        # Simplify the structure if needed, for example, merging duplicate labels if any misinterpretation
+        # Ensure the unique label for each series if required by your frontend
+        print(results)
+        return jsonify(results)
+
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
 
 
 # server configuration
-if __name__ == '__main__':
+if __name__ == "__main__":
     app.run(host="127.0.0.1", debug=True, port=5000)
