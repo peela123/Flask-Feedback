@@ -1,6 +1,8 @@
 # convert "ObjectId" to string
 from dotenv import load_dotenv
 from datetime import datetime, timedelta
+import signal
+from contextlib import contextmanager
 import io
 import json  # json
 from bson import ObjectId  # Import ObjectId from bson library
@@ -15,6 +17,10 @@ import requests
 import jwt
 import os
 import asyncio
+
+
+import requests
+# import pandas as pd
 
 # from flask_jwt import JWT, jwt_required, current_identity
 
@@ -246,10 +252,9 @@ def query(payload, URL):
         print("Error querying the API:", e)
         return None
 
-
 def user_upload_logic():
     try:
-        # Extract query parameters
+        # query parameters
         course_name = str(request.args.get("courseName"))
         course_no = int(request.args.get("courseNo"))
         academic_year = int(request.args.get("academicYear"))
@@ -258,7 +263,7 @@ def user_upload_logic():
         # Parse JSON request body
         request_body = request.get_json()
 
-        # Convert to array data structure
+        # request body
         comments_array = request_body.get("comments", [])
         response_count = request_body.get("responseCount",int)
         cmu_account = request_body.get("cmuAccount")
@@ -320,10 +325,10 @@ def user_upload_logic():
         if existing_course:
             return jsonify(
                 {
-                    "success": True,
+                    "success": False,
                     "message": "Already have exact cmuAccount, courseName, courseNo, semester, academicYear document",
                 }
-            )
+            ),400
         else:
             new_course = {
                 "cmuAccount": cmu_account,
@@ -337,7 +342,8 @@ def user_upload_logic():
                 "responseCount":response_count,
             }
             collection.insert_one(new_course)
-            return jsonify({"success": True, "message": "Insert as new course success"})
+            print(comments_array)
+            return jsonify({"success": True, "message": "Insert as new course success"}),200
     except Exception as e:
         return (
             jsonify(
@@ -350,6 +356,30 @@ def user_upload_logic():
             500,
         )
 
+def ml_query(payload):
+    ML_API_URL = "https://mf842ozbwcv0pftf.us-east-1.aws.endpoints.huggingface.cloud"
+    response = requests.post(ML_API_URL, headers=headers, json=payload)
+    return response.json()
+
+@app.route("/api/ml_result", methods=["GET"])
+def ml_result_handler():
+    comments_array = request_body.get("comments", [])
+    
+    label_predictions = []
+    
+    # texts_to_predict = ["good","bad","normal"]
+    
+    for text in comments_array:
+        result = ml_query({
+            "inputs": text,
+	        "parameters": {}
+        })
+        label_predictions.append(result)
+    
+    print("output:",label_predictions)
+    
+    return "yes"
+   
 
 # post course by cmuAccount
 # data pass to ML
@@ -358,83 +388,67 @@ def user_upload_logic():
 @app.route("/api/user_upload", methods=["POST"])
 def user_upload_course():
     response = user_upload_logic()
-    if isinstance(response, tuple) and response[1] == 500:
-        print("Retrying due to server error...")
-        response = user_upload_logic()
+    # if isinstance(response, tuple) and response[1] == 500:
+    #     print("Retrying due to server error...")
+    #     response = user_upload_logic()
+    # return response
+    if isinstance(response, tuple) and response[1] == 500 or response[1] == 400 or response[1] == 503:
+        return jsonify({"success": False, "message": "Upload File failed"}), 500
+        
     return response
 
-
-@app.route("/api/user_bar_chart", methods=["GET"])
-def user_bar_chart_handler():
+@app.route("/api/user_course_delete", methods=["DELETE"])
+def user_course_delete():
+    cmu_account = request.args.get("cmuAccount")
+    academic_year = request.args.get("academicYear")
+    semester = request.args.get("semester")
+    course_no = request.args.get("courseNo")
     try:
-        course_no = request.args.get("courseNo", default=None, type=int)
-        cmu_account = request.args.get("cmuAccount", default=None, type=str)
+        # Convert parameters to their appropriate types
+        academic_year = int(academic_year) if academic_year is not None else None
+        course_no = int(course_no) if course_no is not None else None
 
-        if not course_no or not cmu_account:
-            return jsonify({"error": "Course number and CMU account are required"}), 400
+        # Query to match the document exactly
+        query = {
+            "cmuAccount": cmu_account,
+            "academicYear": academic_year,
+            "semester": semester,
+            "courseNo": course_no
+        }
 
-        courses_sorted = fetch_user_course(cmu_account, course_no)
+        # Delete the document
+        result = collection.delete_one(query)
 
-        # Initialize results with empty lists for each sentiment and comment type
-
-        results = [
-            {
-                "data": [],
-                "stack": "A",
-            },
-            {
-                "data": [],
-                "stack": "A",
-            },
-            {
-                "data": [],
-                "stack": "A",
-            },
-            {
-                "data": [],
-                "stack": "B",
-            },
-            {
-                "data": [],
-                "stack": "B",
-            },
-            {
-                "data": [],
-                "stack": "B",
-            },
-            {
-                "data": [],
-                "stack": "C",
-            },
-            {
-                "data": [],
-                "stack": "C",
-            },
-            {
-                "data": [],
-                "stack": "C",
-            },
-        ]
-
-        for course in courses_sorted:
-            # Append the counts to the respective 'data' list for each sentiment and comment type
-            results[0]["data"].append(teaching_method_sentiments["Positive"])
-            results[1]["data"].append(teaching_method_sentiments["Negative"])
-            results[2]["data"].append(teaching_method_sentiments["Neutral"])
-            results[3]["data"].append(assessment_sentiments["Positive"])
-            results[4]["data"].append(assessment_sentiments["Negative"])
-            results[5]["data"].append(assessment_sentiments["Neutral"])
-            results[6]["data"].append(content_sentiments["Positive"])
-            results[7]["data"].append(content_sentiments["Negative"])
-            results[8]["data"].append(content_sentiments["Neutral"])
-
-        # Simplify the structure if needed, for example, merging duplicate labels if any misinterpretation
-        # Ensure the unique label for each series if required by your frontend
-        print(results)
-        return jsonify(results)
-
+        # Check if a document was deleted
+        if result.deleted_count > 0:
+            return jsonify({"success": True, "message": f"Course deleted successfully: cmuAccount={cmu_account}, academicYear={academic_year}, semester={semester}, courseNo={course_no}"}), 200
+        else:
+            return jsonify({"success": False, "message": "No course found with the given criteria"}), 404
     except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
+        # Handle any errors that occur
+        return jsonify({"success": False, "message": "An error occurred", "error": str(e)}), 500
+
+@app.route("/api/test", methods=["POST"])
+def log_feedback():
+
+    # query parameters
+    course_name = str(request.args.get("courseName"))
+    course_no = int(request.args.get("courseNo"))
+    academic_year = int(request.args.get("academicYear"))
+    semester = str(request.args.get("semester"))
+
+    # Parse JSON request body
+    request_body = request.get_json()
+
+    # body
+    comments_array = request_body.get("comments", [])
+    response_count = request_body.get("responseCount",int)
+    
+    for i in range(len(comments_array)):
+        print("index",i,comments_array[i])
+    print(len(comments_array))
+  
+    return "yes"
 
 
 # server configuration
