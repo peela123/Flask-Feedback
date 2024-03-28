@@ -41,13 +41,6 @@ collection = db["student_feedbacks"]  # collection name
 
 load_dotenv()  # This loads the variables from .env into the environment
 
-
-# test connection
-@app.route("/", methods=["GET"])
-def test_connection():
-    return "hello this is flask server!"
-
-
 @app.route("/flask-seed", methods=["POST"])
 def flask_seed():
     try:
@@ -61,7 +54,7 @@ def flask_seed():
         return jsonify({"success": False, "error": str(e)}), 500
 
 
-@app.route("/flask-delete", methods=["GET"])
+@app.route("/flask-delete", methods=["DELETE"])
 def flask_delete():
     try:
         result = collection.delete_many({})
@@ -237,14 +230,50 @@ def user_courses():
         return jsonify({"success": False, "Error retrieve user courses": str(e)}), 500
 
 
-API_URL_SENTIMENT = "https://api-inference.huggingface.co/models/Chonkator/feedback_sentiment_analysis"  # sentiment
-API_URL_LABEL = "https://api-inference.huggingface.co/models/Chonkator/feedback_topic_classifier"  # label
-API_TOKEN = "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"
-headers = {"Authorization": f"Bearer {API_TOKEN}"}
 
+def ml_query(payload):
+    SENTIMENT_API_URL = "https://pejn1kp53jrm4kgm.us-east-1.aws.endpoints.huggingface.cloud" # sentiment end point
+    TOPIC_API_URL = "https://mf842ozbwcv0pftf.us-east-1.aws.endpoints.huggingface.cloud" # topic end point
+    headers = {
+	"Accept" : "application/json",
+	"Content-Type": "application/json" 
+    }
+    response = requests.post(TOPIC_API_URL, headers=headers, json=payload)
+    return response.json()
+
+@app.route("/api/ml_result", methods=["POST"])
+def ml_result_handler():
+    # Parse JSON request body
+    request_body = request.get_json()
+    comments_array = request_body.get("comments", [])
+    
+    for i in range(len(comments_array)):
+        print(i," ",comments_array[i])
+    print("pre print")
+    
+    label_predictions = []
+    # texts_to_predict = ["สอนดีมากครับ","เนื้อหาทันสมัย","มีสื่อการสอนที่หลากหลาย"]
+    for text in comments_array:
+        result = ml_query({
+            "inputs": text,
+	        "parameters": {}
+        })
+        label_predictions.append(result)
+    for label in label_predictions:
+        print(label)
+    print(len(label_predictions))
+    print("post print")
+    # for i in range(len(label_predictions)):
+    #     print(i , " " , label_predictions[i])
+    # print("total:",len(label_predictions))
+ 
+    return "yes"
+   
 
 def query(payload, URL):
     try:
+        API_TOKEN = "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"
+        headers = {"Authorization": f"Bearer {API_TOKEN}"}
         response = requests.post(URL, headers=headers, json=payload)
         response.raise_for_status()  # Raise an exception for 4xx or 5xx status codes
         return response.json()
@@ -273,10 +302,14 @@ def user_upload_logic():
             comments_array[i : i + batch_size]
             for i in range(0, len(comments_array), batch_size)
         ]
-
+        # store predict sentiment and label
         all_predicted_labels = []
         all_predicted_sentiments = []
+        
+        API_URL_SENTIMENT = "https://api-inference.huggingface.co/models/Chonkator/feedback_sentiment_analysis"  
+        API_URL_LABEL = "https://api-inference.huggingface.co/models/Chonkator/feedback_topic_classifier"  
 
+        #make prediction by ML
         for batch in batches:
             # Assuming 'query' is a function that sends requests to your ML models and returns predictions
             # Replace 'API_URL_LABEL' and 'API_URL_SENTIMENT' with your actual API URLs
@@ -298,7 +331,7 @@ def user_upload_logic():
             all_predicted_sentiments.extend(predicted_sentiments_batch)
 
         teaching_method_comments, assessment_comments, content_comments = [], [], []
-
+        # split comment in to 3 array
         for i, comment_text in enumerate(comments_array):
             comment = {
                 "text": comment_text,
@@ -356,31 +389,6 @@ def user_upload_logic():
             500,
         )
 
-def ml_query(payload):
-    ML_API_URL = "https://mf842ozbwcv0pftf.us-east-1.aws.endpoints.huggingface.cloud"
-    response = requests.post(ML_API_URL, headers=headers, json=payload)
-    return response.json()
-
-@app.route("/api/ml_result", methods=["GET"])
-def ml_result_handler():
-    comments_array = request_body.get("comments", [])
-    
-    label_predictions = []
-    
-    # texts_to_predict = ["good","bad","normal"]
-    
-    for text in comments_array:
-        result = ml_query({
-            "inputs": text,
-	        "parameters": {}
-        })
-        label_predictions.append(result)
-    
-    print("output:",label_predictions)
-    
-    return "yes"
-   
-
 # post course by cmuAccount
 # data pass to ML
 # not support .csv yet
@@ -396,6 +404,7 @@ def user_upload_course():
         return jsonify({"success": False, "message": "Upload File failed"}), 500
         
     return response
+
 
 @app.route("/api/user_course_delete", methods=["DELETE"])
 def user_course_delete():
@@ -427,29 +436,6 @@ def user_course_delete():
     except Exception as e:
         # Handle any errors that occur
         return jsonify({"success": False, "message": "An error occurred", "error": str(e)}), 500
-
-@app.route("/api/test", methods=["POST"])
-def log_feedback():
-
-    # query parameters
-    course_name = str(request.args.get("courseName"))
-    course_no = int(request.args.get("courseNo"))
-    academic_year = int(request.args.get("academicYear"))
-    semester = str(request.args.get("semester"))
-
-    # Parse JSON request body
-    request_body = request.get_json()
-
-    # body
-    comments_array = request_body.get("comments", [])
-    response_count = request_body.get("responseCount",int)
-    
-    for i in range(len(comments_array)):
-        print("index",i,comments_array[i])
-    print(len(comments_array))
-  
-    return "yes"
-
 
 # server configuration
 if __name__ == "__main__":
