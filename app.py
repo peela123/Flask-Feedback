@@ -173,7 +173,6 @@ def user_course():
 
 # retrive course header by cmuAccount and courseNo
 # sorted
-# just header for testingn
 @app.route("/api/user_course/header", methods=["GET"])
 def user_course_header():
     try:
@@ -231,45 +230,117 @@ def user_courses():
 
 
 
-def ml_query(payload):
-    SENTIMENT_API_URL = "https://pejn1kp53jrm4kgm.us-east-1.aws.endpoints.huggingface.cloud" # sentiment end point
-    TOPIC_API_URL = "https://mf842ozbwcv0pftf.us-east-1.aws.endpoints.huggingface.cloud" # topic end point
+def ml_query(payload,URL):
     headers = {
 	"Accept" : "application/json",
 	"Content-Type": "application/json" 
     }
-    response = requests.post(TOPIC_API_URL, headers=headers, json=payload)
+    response = requests.post(URL, headers=headers, json=payload)
     return response.json()
 
 @app.route("/api/ml_result", methods=["POST"])
-def ml_result_handler():
-    # Parse JSON request body
-    request_body = request.get_json()
-    comments_array = request_body.get("comments", [])
-    
-    for i in range(len(comments_array)):
-        print(i," ",comments_array[i])
-    print("pre print")
-    
-    label_predictions = []
-    # texts_to_predict = ["สอนดีมากครับ","เนื้อหาทันสมัย","มีสื่อการสอนที่หลากหลาย"]
-    for text in comments_array:
-        result = ml_query({
-            "inputs": text,
-	        "parameters": {}
-        })
-        label_predictions.append(result)
-    for label in label_predictions:
-        print(label)
-    print(len(label_predictions))
-    print("post print")
-    # for i in range(len(label_predictions)):
-    #     print(i , " " , label_predictions[i])
-    # print("total:",len(label_predictions))
- 
-    return "yes"
-   
+def user_upload_to_ml_handler():
+    try:
+      
+        # query parameters
+        course_name = str(request.args.get("courseName"))
+        course_no = int(request.args.get("courseNo"))
+        academic_year = int(request.args.get("academicYear"))
+        semester = str(request.args.get("semester"))
 
+        # Parse JSON request body
+        request_body = request.get_json()
+
+        # request body
+        comments_array = request_body.get("comments", [])
+        response_count = request_body.get("responseCount",int)
+        cmu_account = request_body.get("cmuAccount")
+        
+        # for store incoming predicted sentiment and label
+        predicted_labels = []
+        predicted_sentiments = []
+    
+        # make prediction with texts array
+        SENTIMENT_API_URL = "https://pejn1kp53jrm4kgm.us-east-1.aws.endpoints.huggingface.cloud" # sentiment endpoint
+        TOPIC_API_URL = "https://mf842ozbwcv0pftf.us-east-1.aws.endpoints.huggingface.cloud" # label endpoint
+        # predict label
+        payload = {
+            "inputs":comments_array,
+            "parameters": {}
+        }
+        # extract single array in array
+        label_result = ml_query(payload,TOPIC_API_URL)
+        actual_label_result = label_result[0]
+        predicted_labels = actual_label_result
+        # predict sentiment
+        payload = {
+            "inputs":comments_array,
+            "parameters": {}
+        }
+        # extract single array in array
+        sentiment_result = ml_query(payload,SENTIMENT_API_URL)
+        actual_sentiment_result = sentiment_result[0]
+        predicted_sentiments = actual_sentiment_result
+        
+        # initialize 3 topic array
+        teaching_method_comments, assessment_comments, content_comments = [], [], []
+        
+        # split into 3 array
+        for i, comment_text in enumerate(comments_array):
+            comment = {
+                "text": comment_text,
+                "label": predicted_labels[i]["topic"],
+                "sentiment": predicted_sentiments[i]["sentiment"],
+                
+            }
+            if comment["label"].lower() == "teaching_method":
+                teaching_method_comments.append(comment)
+            elif comment["label"].lower() == "exam":
+                assessment_comments.append(comment)
+            elif comment["label"].lower() == "content":
+                content_comments.append(comment)
+        
+        # check if already have exact document
+        existing_course = collection.find_one(
+            {
+                "cmuAccount": cmu_account,
+                "courseName": course_name,
+                "courseNo": course_no,
+                "academicYear": academic_year,
+                "semester": semester,
+            }
+        )
+        
+        if existing_course:
+            return jsonify(
+                {
+                    "success": False,
+                    "message": "Already have exact cmuAccount, courseName, courseNo, semester, academicYear document",
+                }
+            ),400
+        else:
+            new_course = {
+                "cmuAccount": cmu_account,
+                "courseName": course_name,
+                "courseNo": course_no,
+                "academicYear": academic_year,
+                "semester": semester,
+                "teachingMethodComments": teaching_method_comments,
+                "assessmentComments": assessment_comments,
+                "contentComments": content_comments,
+                "responseCount":response_count,
+            }
+            collection.insert_one(new_course)
+        
+       
+        print("post print")
+            
+        return jsonify({"success": True, "message":"User upload pass throug ML and insert as new document to DB success"}), 200
+    except Exception as e:
+        print(str(e))
+        return jsonify({"success": False, "error": str(e)}), 500
+
+# default
 def query(payload, URL):
     try:
         API_TOKEN = "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"
@@ -281,6 +352,7 @@ def query(payload, URL):
         print("Error querying the API:", e)
         return None
 
+# default
 def user_upload_logic():
     try:
         # query parameters
@@ -297,7 +369,7 @@ def user_upload_logic():
         response_count = request_body.get("responseCount",int)
         cmu_account = request_body.get("cmuAccount")
 
-        batch_size = 10
+        batch_size = 400
         batches = [
             comments_array[i : i + batch_size]
             for i in range(0, len(comments_array), batch_size)
@@ -375,7 +447,10 @@ def user_upload_logic():
                 "responseCount":response_count,
             }
             collection.insert_one(new_course)
-            print(comments_array)
+            
+            for i in range(len(comments_array)):
+                print(i," ",comments_array[i])
+            
             return jsonify({"success": True, "message": "Insert as new course success"}),200
     except Exception as e:
         return (
@@ -392,9 +467,9 @@ def user_upload_logic():
 # post course by cmuAccount
 # data pass to ML
 # not support .csv yet
-# for some reason this route work on second attemp
+# for some reason this route work on second attemp so keep repeat requesting if it fail
 @app.route("/api/user_upload", methods=["POST"])
-def user_upload_course():
+def user_upload_handler():
     response = user_upload_logic()
     # if isinstance(response, tuple) and response[1] == 500:
     #     print("Retrying due to server error...")
